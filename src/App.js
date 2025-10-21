@@ -1,25 +1,51 @@
-import logo from './logo.svg';
-import './App.css';
+// src/App.js
+import React, { useState } from 'react';
+import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
+import { createTheme, ThemeProvider } from '@mui/material/styles';
+import CssBaseline from '@mui/material/CssBaseline';
+
+import LoginPage from './components/LoginPage';
+import AdminLayout from './components/AdminLayout';
+import AdminDashboardPage from './components/AdminDashboardPage';
+import QuestionnaireManagerPage from './components/QuestionnaireManagerPage';
+import UserManagerPage from './components/UserManagerPage';
+
+const theme = createTheme({
+    palette: {
+        primary: { main: '#1976d2' },
+        secondary: { main: '#dc004e' },
+    },
+});
 
 function App() {
-  return (
-    <div className="App">
-      <header className="App-header">
-        <img src={logo} className="App-logo" alt="logo" />
-        <p>
-          Edit <code>src/App.js</code> and save to reload.
-        </p>
-        <a
-          className="App-link"
-          href="https://reactjs.org"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          Learn React
-        </a>
-      </header>
-    </div>
-  );
+    const [user, setUser] = useState(null);
+
+    const handleLoginSuccess = (userData) => {
+        setUser(userData);
+    };
+    
+    const ProtectedRoute = () => {
+        return user ? <AdminLayout user={user} /> : <Navigate to="/login" />;
+    };
+
+    return (
+        <ThemeProvider theme={theme}>
+            <CssBaseline />
+            <Router>
+                <Routes>
+                    <Route path="/login" element={<LoginPage onLoginSuccess={handleLoginSuccess} />} />
+                    
+                    <Route element={<ProtectedRoute />}>
+                        <Route path="/dashboard" element={<AdminDashboardPage />} />
+                        <Route path="/questionarios" element={<QuestionnaireManagerPage />} />
+                        <Route path="/usuarios" element={<UserManagerPage />} />
+                    </Route>
+
+                    <Route path="*" element={<Navigate to={user ? "/dashboard" : "/login"} />} />
+                </Routes>
+            </Router>
+        </ThemeProvider>
+    );
 }
 
 export default App;
