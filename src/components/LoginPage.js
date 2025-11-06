@@ -2,8 +2,9 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Box, Container, TextField, Button, Typography, Paper } from '@mui/material';
-import { auth } from '../firebase';
-import { signInWithEmailAndPassword } from 'firebase/auth';
+import bcrypt from 'bcryptjs';
+import { db } from '../firebase';
+import { collection, query, where, getDocs } from 'firebase/firestore';
 
 function LoginPage({ onLoginSuccess }) {
     const [loginInput, setLoginInput] = useState('');
@@ -14,27 +15,57 @@ function LoginPage({ onLoginSuccess }) {
     const handleLogin = async (e) => {
         e.preventDefault();
         setError('');
-        
-        const emailParaLogin = loginInput.toLowerCase() === 'admin' 
-            ? 'admin@vivamais.com' 
-            : loginInput;
+
+        if (!loginInput.trim()) {
+            setError('Por favor, digite seu usuário');
+            return;
+        }
+
+        if (!password) {
+            setError('Por favor, digite sua senha');
+            return;
+        }
 
         try {
-            const userCredential = await signInWithEmailAndPassword(auth, emailParaLogin, password);
-            const user = userCredential.user;
+            // Buscar usuário no Firestore
+            const usersRef = collection(db, 'users');
+            const q = query(
+                usersRef, 
+                where('username', '==', loginInput.toLowerCase())
+            );
 
-            const userData = {
-                id: user.uid,
-                email: user.email,
-                role: 'admin',
-                fullName: user.displayName || user.email,
+            const querySnapshot = await getDocs(q);
+
+            if (querySnapshot.empty) {
+                setError('Usuário não encontrado ou inativo.');
+                return;
+            }
+
+            const userDoc = querySnapshot.docs[0];
+            const userData = userDoc.data();
+
+            // Verificar a senha usando bcrypt
+            const isValidPassword = await bcrypt.compare(password, userData.password_hash);
+
+            if (!isValidPassword) {
+                setError('Senha incorreta.');
+                return;
+            }
+
+            // Login bem sucedido
+            const userInfo = {
+                id: userDoc.id,
+                email: userData.email,
+                role: userData.role,
+                fullName: userData.full_name,
             };
-            
-            onLoginSuccess(userData);
+
+            onLoginSuccess(userInfo);
             navigate('/dashboard');
+
         } catch (err) {
-            setError('Credenciais inválidas.');
-            console.error('Erro no login com Firebase:', err.message);
+            setError('Erro ao fazer login. Tente novamente.');
+            console.error('Erro no login:', err.message);
         }
     };
 
