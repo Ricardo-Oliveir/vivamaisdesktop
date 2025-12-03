@@ -1,0 +1,50 @@
+/* src/App.css */
+:root {
+  /* --- CORES (Copiadas do theme.js Mobile) --- */
+  --primary: #2E7D32;       /* Verde Elderly */
+  --secondary: #4A90E2;     /* Azul */
+  --tertiary: #F57C00;      /* Laranja CTA */
+  --accent: #A5D6A7;        /* Verde Claro */
+  --background: #F8F9FA;    /* Fundo suave */
+  --surface: #FFFFFF;       /* Cartões */
+  --text: #424242;          /* Texto Escuro */
+  --error: #DC3545;
+  
+  /* --- ESPAÇAMENTOS E BORDAS --- */
+  --radius-lg: 12px;        /* theme.borderRadius.large */
+  --radius-round: 50px;
+  --shadow-md: 0 4px 6px rgba(0,0,0,0.1); /* theme.shadow.medium */
+}
+
+body {
+  background-color: var(--background);
+  color: var(--text);
+  font-family: 'Roboto', sans-serif; /* Fonte padrão limpa */
+  margin: 0;
+}
+
+/* CLASSE MÁGICA: Botão igual ao ElderlyButton do App */
+.elderly-button {
+  background-color: var(--primary);
+  color: white;
+  border: none;
+  border-radius: var(--radius-lg);
+  padding: 16px 24px; /* Equivalente ao padding large */
+  font-size: 20px;    /* theme.fonts.elderlyMedium */
+  font-weight: bold;
+  cursor: pointer;
+  box-shadow: var(--shadow-md);
+  transition: transform 0.2s;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.elderly-button:hover {
+  opacity: 0.9;
+  transform: translateY(-2px);
+}
+
+.elderly-button.secondary {
+  background-color: var(--tertiary); /* Laranja */
+}
