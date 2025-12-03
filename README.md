@@ -1,70 +1,114 @@
-# Getting Started with Create React App
+# 🏥 VivaMais - Painel Administrativo Web
 
-This project was bootstrapped with [Create React App](https://github.com/facebook/create-react-app).
+Sistema de gestão para pesquisa de satisfação e monitoramento de serviços para idosos. Permite gerenciar questionários, usuários, visualizar estatísticas em tempo real, exportar relatórios em Excel e gerar insights com Inteligência Artificial.
 
-## Available Scripts
+---
 
-In the project directory, you can run:
+## 🚀 Tecnologias Utilizadas
 
-### `npm start`
+### Frontend (Web)
+* **React.js**: Biblioteca principal.
+* **Material UI (MUI)**: Design System (componentes visuais).
+* **Axios**: Comunicação com a API.
+* **Chart.js**: Gráficos do Dashboard.
+* **XLSX (SheetJS)**: Exportação de relatórios para Excel.
+* **React Router Dom**: Navegação.
 
-Runs the app in the development mode.\
-Open [http://localhost:3000](http://localhost:3000) to view it in your browser.
+### Backend (API)
+* **Node.js & Express**: Servidor.
+* **Firebase Admin SDK**: Banco de dados e Autenticação.
+* **JWT**: Segurança.
+* **OpenAI**: Inteligência Artificial para análise de sentimentos.
 
-The page will reload when you make changes.\
-You may also see any lint errors in the console.
+---
 
-### `npm test`
+## 📦 Instalação e Execução (Passo a Passo)
 
-Launches the test runner in the interactive watch mode.\
-See the section about [running tests](https://facebook.github.io/create-react-app/docs/running-tests) for more information.
+Este projeto funciona com **dois terminais abertos**: um para o Servidor (Backend) e outro para o Site (Frontend).
 
-### `npm run build`
+### PASSO 1: Configurar o Backend (Servidor)
 
-Builds the app for production to the `build` folder.\
-It correctly bundles React in production mode and optimizes the build for the best performance.
+1.  Acesse a pasta do servidor:
+    ```bash
+    cd backend-example
+    ```
 
-The build is minified and the filenames include the hashes.\
-Your app is ready to be deployed!
+2.  **Instale todas as dependências (incluindo OpenAI):**
+    Rode este comando para baixar tudo o que o servidor precisa:
+    ```bash
+    npm install express firebase-admin cors helmet bcryptjs jsonwebtoken dotenv nodemon openai
+    ```
 
-See the section about [deployment](https://facebook.github.io/create-react-app/docs/deployment) for more information.
+3.  **Configuração do Firebase:**
+    * Coloque o arquivo da sua chave de serviço (baixado do console do Firebase) na raiz da pasta `backend-example`.
+    * Renomeie o arquivo para: **`firebase-adminsdk-key.json`**.
 
-### `npm run eject`
+4.  **Configuração da IA (Opcional):**
+    * Crie um arquivo chamado **`.env`** na pasta `backend-example`.
+    * Se você tiver uma chave paga da OpenAI ou Gemini, coloque dentro dele:
+      ```env
+      OPENAI_API_KEY=sua-chave-aqui-sk-...
+      ```
+    * *Nota:* Se não criar esse arquivo, o sistema rodará em **Modo Simulação Grátis** (usando algoritmo matemático para gerar os insights).
 
-**Note: this is a one-way operation. Once you `eject`, you can't go back!**
+5.  Inicie o servidor:
+    ```bash
+    npm run dev
+    ```
+    *O terminal deve mostrar: `🚀 Servidor rodando na porta 3000`.*
 
-If you aren't satisfied with the build tool and configuration choices, you can `eject` at any time. This command will remove the single build dependency from your project.
+---
 
-Instead, it will copy all the configuration files and the transitive dependencies (webpack, Babel, ESLint, etc) right into your project so you have full control over them. All of the commands except `eject` will still work, but they will point to the copied scripts so you can tweak them. At this point you're on your own.
+### PASSO 2: Configurar o Frontend (Site)
 
-You don't have to ever use `eject`. The curated feature set is suitable for small and middle deployments, and you shouldn't feel obligated to use this feature. However we understand that this tool wouldn't be useful if you couldn't customize it when you are ready for it.
+1.  Abra um **novo terminal** e acesse a pasta do site:
+    ```bash
+    cd vivamaisdesktop
+    ```
 
-## Learn More
+2.  **Instale as dependências (incluindo Excel e Gráficos):**
+    Rode este comando único para instalar o visual, o exportador de Excel e os gráficos:
+    ```bash
+    npm install @mui/material @emotion/react @emotion/styled @mui/icons-material axios react-router-dom chart.js react-chartjs-2 xlsx
+    ```
 
-You can learn more in the [Create React App documentation](https://facebook.github.io/create-react-app/docs/getting-started).
+3.  Inicie o site:
+    ```bash
+    npm start
+    ```
+    *O site abrirá automaticamente em `http://localhost:3001`.*
 
-To learn React, check out the [React documentation](https://reactjs.org/).
+---
 
-### Code Splitting
+## 🛠️ Funcionalidades Principais
 
-This section has moved here: [https://facebook.github.io/create-react-app/docs/code-splitting](https://facebook.github.io/create-react-app/docs/code-splitting)
+### 1. Dashboard
+* Visão geral de métricas em tempo real.
+* Gráficos de adesão e respostas.
 
-### Analyzing the Bundle Size
+### 2. Gerenciador de Questionários
+* Criar, Editar e Excluir pesquisas.
+* **Botão Excel:** Baixa todas as respostas daquele questionário em formato `.xlsx`.
+* **Botão Perguntas:** Visualiza a lista de perguntas cadastradas.
 
-This section has moved here: [https://facebook.github.io/create-react-app/docs/analyzing-the-bundle-size](https://facebook.github.io/create-react-app/docs/analyzing-the-bundle-size)
+### 3. Análise Inteligente (IA)
+* Aba dedicada para analisar resultados.
+* Gera **Pontos Fortes**, **Pontos de Melhoria** e **Plano de Ação**.
+* Funciona em modo híbrido (IA Real ou Simulação Estatística).
 
-### Making a Progressive Web App
+### 4. Gestão de Usuários
+* Controle de acesso (Admin vs Usuário App).
+* Cadastro e exclusão de contas.
 
-This section has moved here: [https://facebook.github.io/create-react-app/docs/making-a-progressive-web-app](https://facebook.github.io/create-react-app/docs/making-a-progressive-web-app)
+---
 
-### Advanced Configuration
+## ⚠️ Solução de Problemas
 
-This section has moved here: [https://facebook.github.io/create-react-app/docs/advanced-configuration](https://facebook.github.io/create-react-app/docs/advanced-configuration)
+* **Erro "Network Error" ou Dashboard Zerado:**
+    * Verifique se o backend está rodando na porta 3000.
+    * Confirme se o arquivo `src/services/api.js` aponta para `http://localhost:3000/api`.
 
-### Deployment
+* **Erro ao Exportar Excel:**
+    * Certifique-se de que o questionário possui respostas. O sistema avisa se estiver vazio.
 
-This section has moved here: [https://facebook.github.io/create-react-app/docs/deployment](https://facebook.github.io/create-react-app/docs/deployment)
-
-### `npm run build` fails to minify
-
-This section has moved here: [https://facebook.github.io/create-react-app/docs/troubleshooting#npm-run-build-fails-to-minify](https://facebook.github.io/create-react-app/docs/troubleshooting#npm-run-build-fails-to-minify)
+---
