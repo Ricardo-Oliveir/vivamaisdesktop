@@ -940,6 +940,60 @@ app.delete('/api/questionnaires/:id', authenticateToken, async (req, res) => {
   }
 });
 
+// ⚠️ LIMPAR TODAS AS RESPOSTAS (apenas admin)
+app.delete('/api/responses/clear-all', authenticateToken, async (req, res) => {
+  try {
+    // Verificar se é admin
+    if (req.user.role !== 'admin') {
+      return res.status(403).json({ error: 'Apenas administradores podem limpar respostas' });
+    }
+
+    console.log('🧹 LIMPANDO TODAS AS RESPOSTAS...');
+    
+    let deletedResponses = 0;
+    let deletedSessions = 0;
+
+    // 1. Deletar todas as respostas
+    const responsesSnapshot = await db.collection('responses').get();
+    const responseBatch = db.batch();
+    responsesSnapshot.docs.forEach(doc => {
+      responseBatch.delete(doc.ref);
+      deletedResponses++;
+    });
+    if (deletedResponses > 0) {
+      await responseBatch.commit();
+    }
+    console.log(`🗑️ ${deletedResponses} respostas deletadas`);
+
+    // 2. Deletar todas as sessões de resposta
+    const sessionsSnapshot = await db.collection('response_sessions').get();
+    const sessionBatch = db.batch();
+    sessionsSnapshot.docs.forEach(doc => {
+      sessionBatch.delete(doc.ref);
+      deletedSessions++;
+    });
+    if (deletedSessions > 0) {
+      await sessionBatch.commit();
+    }
+    console.log(`🗑️ ${deletedSessions} sessões deletadas`);
+
+    console.log('✅ TODAS AS RESPOSTAS FORAM LIMPAS!');
+    
+    res.json({
+      success: true,
+      message: 'Todas as respostas foram limpas',
+      deleted: {
+        responses: deletedResponses,
+        sessions: deletedSessions
+      }
+    });
+
+  } catch (error) {
+    console.error('❌ Erro ao limpar respostas:', error);
+    res.status(500).json({ error: 'Erro interno do servidor' });
+  }
+});
+
 // === ROTAS DE QUESTÕES ===
 
 // Buscar questões de um questionário (estrutura embedded - MUITO MAIS SIMPLES!)
@@ -1202,6 +1256,59 @@ app.post('/api/responses', authenticateToken, async (req, res) => {
 
   } catch (error) {
     console.error('❌ Erro ao salvar resposta:', error);
+    res.status(500).json({ error: 'Erro interno do servidor' });
+  }
+});
+
+// Salvar múltiplas respostas em batch (otimizado)
+app.post('/api/responses/batch', authenticateToken, async (req, res) => {
+  try {
+    const { session_id, responses } = req.body;
+    
+    if (!session_id || !responses || !Array.isArray(responses)) {
+      return res.status(400).json({ error: 'session_id e responses (array) são obrigatórios' });
+    }
+
+    console.log(`💬 Salvando ${responses.length} respostas em batch para sessão: ${session_id}`);
+
+    // Usar batch do Firestore para salvar todas de uma vez
+    const batch = db.batch();
+    const savedIds = [];
+
+    for (const response of responses) {
+      const { question_id, value, numeric_value = null } = response;
+      
+      if (!question_id || value === undefined) {
+        continue; // Pular respostas inválidas
+      }
+
+      const docRef = db.collection('responses').doc();
+      batch.set(docRef, {
+        question_id,
+        user_id: req.user.id,
+        value: typeof value === 'string' ? value : JSON.stringify(value),
+        numeric_value: numeric_value,
+        session_id: session_id,
+        created_at: admin.firestore.FieldValue.serverTimestamp()
+      });
+      
+      savedIds.push(docRef.id);
+    }
+
+    // Commit do batch - todas as escritas acontecem de uma vez
+    await batch.commit();
+
+    console.log(`✅ ${savedIds.length} respostas salvas em batch!`);
+    
+    res.status(201).json({
+      success: true,
+      count: savedIds.length,
+      ids: savedIds,
+      message: `${savedIds.length} respostas salvas com sucesso`
+    });
+
+  } catch (error) {
+    console.error('❌ Erro ao salvar respostas em batch:', error);
     res.status(500).json({ error: 'Erro interno do servidor' });
   }
 });
@@ -1877,103 +1984,407 @@ process.on('uncaughtException', (err) => {
 });
 
 // ==========================================
-// ROTA DE INTELIGÊNCIA ARTIFICIAL (INSIGHTS)
+// ROTA DE INTELIGÊNCIA ARTIFICIAL (INSIGHTS) - GEMINI AI
 // ==========================================
 
-const { OpenAI } = require('openai');
+const { GoogleGenerativeAI } = require('@google/generative-ai');
 
-// Configure sua chave aqui (ou deixe vazio para usar o modo Simulado Grátis)
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY || 'SUA_CHAVE_AQUI_SE_TIVER', 
-  dangerouslyAllowBrowser: true 
-});
+// Configure a chave da API do Gemini
+const GEMINI_API_KEY = process.env.GEMINI_API_KEY || '';
+let genAI = null;
+let geminiModel = null;
 
+if (GEMINI_API_KEY) {
+  genAI = new GoogleGenerativeAI(GEMINI_API_KEY);
+  geminiModel = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
+  console.log('✅ Gemini AI configurado com sucesso!');
+} else {
+  console.log('⚠️ GEMINI_API_KEY não configurada - usando análise estatística básica');
+}
+
+// Função auxiliar para coletar dados completos do questionário
+async function collectQuestionnaireData(questionnaireId) {
+  // 1. Buscar questionário com suas perguntas
+  const qDoc = await db.collection('questionnaires').doc(questionnaireId).get();
+  if (!qDoc.exists) {
+    throw new Error('Questionário não encontrado');
+  }
+  const questionnaireData = qDoc.data();
+  
+  // 2. Buscar todas as sessões de resposta deste questionário
+  const sessionsSnap = await db.collection('response_sessions')
+    .where('questionnaire_id', '==', questionnaireId)
+    .get();
+  
+  const sessionIds = sessionsSnap.docs.map(doc => doc.id);
+  const sessions = sessionsSnap.docs.map(doc => ({
+    id: doc.id,
+    ...doc.data()
+  }));
+  
+  // 3. Buscar todas as respostas dessas sessões
+  let allResponses = [];
+  if (sessionIds.length > 0) {
+    // Firestore limita 'in' a 30 itens, então fazemos em chunks
+    const chunks = [];
+    for (let i = 0; i < sessionIds.length; i += 30) {
+      chunks.push(sessionIds.slice(i, i + 30));
+    }
+    
+    for (const chunk of chunks) {
+      const responsesSnap = await db.collection('responses')
+        .where('session_id', 'in', chunk)
+        .get();
+      
+      responsesSnap.forEach(doc => {
+        allResponses.push({
+          id: doc.id,
+          ...doc.data()
+        });
+      });
+    }
+  }
+  
+  return {
+    questionnaire: questionnaireData,
+    questions: questionnaireData.questions || [],
+    sessions,
+    responses: allResponses,
+    totalRespondents: sessions.length
+  };
+}
+
+// Função para preparar dados para análise
+function prepareDataForAnalysis(data) {
+  const { questionnaire, questions, responses, totalRespondents } = data;
+  
+  // Organizar respostas por pergunta
+  const responsesByQuestion = {};
+  questions.forEach(q => {
+    responsesByQuestion[q.id] = {
+      questionText: q.text,
+      questionType: q.type,
+      options: q.options || [],
+      responses: []
+    };
+  });
+  
+  responses.forEach(r => {
+    if (responsesByQuestion[r.question_id]) {
+      responsesByQuestion[r.question_id].responses.push({
+        value: r.value,
+        numericValue: r.numeric_value
+      });
+    }
+  });
+  
+  // Calcular estatísticas por pergunta
+  const questionStats = [];
+  for (const [qId, qData] of Object.entries(responsesByQuestion)) {
+    const stats = {
+      id: qId,
+      text: qData.questionText,
+      type: qData.questionType,
+      totalResponses: qData.responses.length,
+      responses: qData.responses
+    };
+    
+    // Estatísticas numéricas
+    const numericResponses = qData.responses.filter(r => r.numericValue !== null && r.numericValue !== undefined);
+    if (numericResponses.length > 0) {
+      const values = numericResponses.map(r => r.numericValue);
+      stats.average = (values.reduce((a, b) => a + b, 0) / values.length).toFixed(2);
+      stats.min = Math.min(...values);
+      stats.max = Math.max(...values);
+      stats.distribution = {};
+      values.forEach(v => {
+        stats.distribution[v] = (stats.distribution[v] || 0) + 1;
+      });
+    }
+    
+    // Contagem de respostas textuais
+    if (qData.type === 'multiple_choice' || qData.type === 'single_choice') {
+      stats.optionCounts = {};
+      qData.responses.forEach(r => {
+        const val = r.value;
+        stats.optionCounts[val] = (stats.optionCounts[val] || 0) + 1;
+      });
+    }
+    
+    // Respostas de texto livre
+    if (qData.type === 'text' || qData.type === 'long_text') {
+      stats.textResponses = qData.responses.map(r => r.value).filter(v => v && v.trim());
+    }
+    
+    questionStats.push(stats);
+  }
+  
+  return {
+    questionnaireTitle: questionnaire.title,
+    questionnaireDescription: questionnaire.description,
+    totalRespondents,
+    totalResponses: responses.length,
+    questionStats
+  };
+}
+
+// Função para gerar prompt para o Gemini
+function generateGeminiPrompt(analysisData) {
+  const { questionnaireTitle, questionnaireDescription, totalRespondents, questionStats } = analysisData;
+  
+  let prompt = `Você é um analista de dados especializado em pesquisas de saúde e bem-estar. Analise os seguintes dados de um questionário e forneça insights detalhados e acionáveis.
+
+## QUESTIONÁRIO: "${questionnaireTitle}"
+${questionnaireDescription ? `Descrição: ${questionnaireDescription}` : ''}
+
+## DADOS COLETADOS
+- Total de respondentes: ${totalRespondents}
+
+## RESPOSTAS POR PERGUNTA:
+
+`;
+
+  questionStats.forEach((q, index) => {
+    prompt += `### Pergunta ${index + 1}: "${q.text}" (Tipo: ${q.type})
+- Total de respostas: ${q.totalResponses}
+`;
+    
+    if (q.average) {
+      prompt += `- Média: ${q.average} (Min: ${q.min}, Max: ${q.max})
+- Distribuição: ${JSON.stringify(q.distribution)}
+`;
+    }
+    
+    if (q.optionCounts) {
+      prompt += `- Distribuição das respostas: ${JSON.stringify(q.optionCounts)}
+`;
+    }
+    
+    if (q.textResponses && q.textResponses.length > 0) {
+      prompt += `- Respostas textuais (amostra de até 10):
+${q.textResponses.slice(0, 10).map(t => `  • "${t}"`).join('\n')}
+`;
+    }
+    
+    prompt += '\n';
+  });
+
+  prompt += `
+## INSTRUÇÕES PARA ANÁLISE
+
+Forneça uma análise completa em formato JSON com a seguinte estrutura EXATA:
+
+{
+  "resumo_executivo": "Um parágrafo resumindo os principais achados",
+  "pontos_fortes": [
+    "Lista de 3-5 pontos positivos identificados nos dados"
+  ],
+  "pontos_atencao": [
+    "Lista de 3-5 áreas que precisam de atenção ou melhoria"
+  ],
+  "insights_detalhados": [
+    {
+      "titulo": "Título do insight",
+      "descricao": "Descrição detalhada do insight",
+      "impacto": "alto|medio|baixo",
+      "recomendacao": "Ação recomendada"
+    }
+  ],
+  "plano_acao": [
+    {
+      "prioridade": 1,
+      "acao": "Descrição da ação",
+      "prazo_sugerido": "imediato|curto_prazo|medio_prazo|longo_prazo",
+      "justificativa": "Por que essa ação é importante"
+    }
+  ],
+  "metricas_chave": {
+    "satisfacao_geral": "X.X/5 ou N/A",
+    "taxa_resposta_positiva": "XX%",
+    "principais_preocupacoes": ["lista de preocupações"]
+  },
+  "tendencias": [
+    "Observações sobre padrões ou tendências nos dados"
+  ]
+}
+
+IMPORTANTE:
+1. Base suas conclusões APENAS nos dados fornecidos
+2. Seja específico e cite números quando possível
+3. Foque em insights acionáveis para um programa de saúde
+4. Retorne APENAS o JSON, sem texto adicional
+5. Use português brasileiro`;
+
+  return prompt;
+}
+
+// Rota principal de geração de insights
 app.post('/api/generate-insights', authenticateToken, async (req, res) => {
   try {
     const { questionnaireId } = req.body;
     console.log(`🧠 Gerando insights para o questionário: ${questionnaireId}`);
 
-    // 1. Busca as Perguntas e Respostas no Banco
-    const qDoc = await db.collection('questionnaires').doc(questionnaireId).get();
-    const qData = qDoc.data();
+    // 1. Coletar todos os dados necessários
+    const rawData = await collectQuestionnaireData(questionnaireId);
     
-    // Busca respostas
-    // (Simplificado: busca as últimas 50 para não estourar o limite da IA)
-    const responsesSnap = await db.collection('responses')
-      .where('question_id', '>=', '') // Truque para pegar varias
-      .limit(50) 
-      .get();
+    // Verificar se há dados suficientes
+    if (rawData.totalRespondents === 0) {
+      return res.json({ 
+        success: true, 
+        analysis: {
+          strengths: ["Questionário criado com sucesso."],
+          improvements: ["Ainda não há respostas registradas."],
+          action_plan: ["Divulgue o questionário para coletar respostas.", "Compartilhe o link com os participantes."]
+        },
+        detailed: null,
+        message: "Aguardando respostas para análise completa"
+      });
+    }
 
-    // Se não tiver respostas suficientes, avisa
-    if (responsesSnap.empty) {
+    // 2. Preparar dados para análise
+    const analysisData = prepareDataForAnalysis(rawData);
+    console.log(`📊 Dados preparados: ${analysisData.totalRespondents} respondentes, ${analysisData.questionStats.length} perguntas`);
+
+    // 3. Verificar se Gemini está disponível
+    if (geminiModel && GEMINI_API_KEY) {
+      console.log('🤖 Usando Gemini AI para análise avançada...');
+      
+      try {
+        const prompt = generateGeminiPrompt(analysisData);
+        const result = await geminiModel.generateContent(prompt);
+        const response = await result.response;
+        let aiText = response.text();
+        
+        // Limpar resposta do Gemini (remover markdown se houver)
+        aiText = aiText.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
+        
+        const aiAnalysis = JSON.parse(aiText);
+        
+        console.log('✅ Análise do Gemini concluída com sucesso!');
+        
+        // Converter para formato compatível com frontend existente + dados extras
+        const analysis = {
+          strengths: aiAnalysis.pontos_fortes || [],
+          improvements: aiAnalysis.pontos_atencao || [],
+          action_plan: aiAnalysis.plano_acao?.map(a => `[${a.prazo_sugerido?.toUpperCase()}] ${a.acao}`) || []
+        };
+        
         return res.json({ 
-            success: true, 
-            analysis: {
-                strengths: ["Ainda não há dados suficientes."],
-                improvements: ["Aguarde mais respostas."],
-                action_plan: ["Divulgue o questionário."]
-            }
+          success: true, 
+          analysis,
+          detailed: aiAnalysis,
+          source: 'gemini-ai',
+          stats: {
+            totalRespondents: analysisData.totalRespondents,
+            totalResponses: analysisData.totalResponses
+          }
         });
+        
+      } catch (aiError) {
+        console.error('⚠️ Erro no Gemini, usando fallback:', aiError.message);
+        // Continua para análise estatística básica
+      }
     }
 
-    // --- MODO: INTELIGÊNCIA ARTIFICIAL 
-    if (process.env.OPENAI_API_KEY) {
-        AIzaSyBc6PXjweUCxBRd49RwivsuDjS07pZhoJ4
-    }
-
-    // --- MODO: ANÁLISE ESTATÍSTICA (GRÁTIS - SIMULAÇÃO) ---
-    // Este algoritmo analisa os números reais do seu banco para gerar o insight
+    // 4. Fallback: Análise estatística básica (sem IA)
+    console.log('📈 Usando análise estatística básica...');
+    
+    const analysis = {
+      strengths: [],
+      improvements: [],
+      action_plan: []
+    };
     
     let totalScore = 0;
     let countRating = 0;
-    let negativeComments = 0;
-
-    responsesSnap.forEach(doc => {
-        const r = doc.data();
-        if (r.numeric_value) {
-            totalScore += r.numeric_value;
-            countRating++;
+    let textResponses = [];
+    
+    analysisData.questionStats.forEach(q => {
+      if (q.average) {
+        totalScore += parseFloat(q.average) * q.totalResponses;
+        countRating += q.totalResponses;
+        
+        if (parseFloat(q.average) >= 4) {
+          analysis.strengths.push(`"${q.text.substring(0, 50)}..." - Média alta: ${q.average}`);
+        } else if (parseFloat(q.average) < 3) {
+          analysis.improvements.push(`"${q.text.substring(0, 50)}..." - Média baixa: ${q.average}`);
         }
-        // Simula análise de sentimento básica
-        if (r.value && (r.value.includes('ruim') || r.value.includes('demora') || r.value.includes('não'))) {
-            negativeComments++;
-        }
+      }
+      
+      if (q.textResponses) {
+        textResponses = textResponses.concat(q.textResponses);
+      }
+    });
+    
+    const overallAverage = countRating > 0 ? (totalScore / countRating).toFixed(1) : 0;
+    
+    // Análise de sentimento básica
+    const negativeWords = ['ruim', 'péssimo', 'horrível', 'demora', 'demorado', 'não', 'nunca', 'insatisfeito', 'problema', 'difícil'];
+    const positiveWords = ['bom', 'ótimo', 'excelente', 'rápido', 'fácil', 'satisfeito', 'gostei', 'recomendo'];
+    
+    let negativeCount = 0;
+    let positiveCount = 0;
+    
+    textResponses.forEach(text => {
+      const lowerText = text.toLowerCase();
+      negativeWords.forEach(word => {
+        if (lowerText.includes(word)) negativeCount++;
+      });
+      positiveWords.forEach(word => {
+        if (lowerText.includes(word)) positiveCount++;
+      });
+    });
+    
+    // Gerar insights baseados nos dados
+    if (overallAverage >= 4) {
+      analysis.strengths.push(`Satisfação geral alta (média ${overallAverage}/5)`);
+    } else if (overallAverage >= 3) {
+      analysis.improvements.push(`Satisfação moderada (média ${overallAverage}/5) - há espaço para melhorias`);
+    } else if (overallAverage > 0) {
+      analysis.improvements.push(`Satisfação baixa (média ${overallAverage}/5) - requer atenção imediata`);
+    }
+    
+    if (positiveCount > negativeCount) {
+      analysis.strengths.push(`Feedback textual majoritariamente positivo (${positiveCount} menções positivas)`);
+    } else if (negativeCount > positiveCount) {
+      analysis.improvements.push(`Detectados ${negativeCount} comentários com termos negativos`);
+      analysis.action_plan.push("Revisar comentários de texto para identificar problemas específicos");
+    }
+    
+    analysis.strengths.push(`${analysisData.totalRespondents} pessoas responderam ao questionário`);
+    
+    // Plano de ação básico
+    if (analysis.improvements.length > 0) {
+      analysis.action_plan.push("Investigar as áreas com menor avaliação");
+      analysis.action_plan.push("Realizar entrevistas qualitativas para entender os problemas");
+    }
+    analysis.action_plan.push("Continuar coletando feedback regularmente");
+    
+    // Garantir que sempre haja algo
+    if (analysis.strengths.length === 0) {
+      analysis.strengths.push("Dados sendo coletados para análise mais precisa");
+    }
+    if (analysis.action_plan.length === 0) {
+      analysis.action_plan.push("Aguardar mais respostas para recomendações específicas");
+    }
+    
+    console.log('✅ Análise estatística concluída');
+    
+    res.json({ 
+      success: true, 
+      analysis,
+      detailed: null,
+      source: 'statistical-analysis',
+      stats: {
+        totalRespondents: analysisData.totalRespondents,
+        totalResponses: analysisData.totalResponses,
+        overallAverage
+      }
     });
 
-    const average = countRating > 0 ? (totalScore / countRating).toFixed(1) : 0;
-    
-    // Gera o texto baseado nos dados reais
-    const analysis = {
-        strengths: [],
-        improvements: [],
-        action_plan: []
-    };
-
-    if (average >= 4) {
-        analysis.strengths.push("Alta satisfação geral dos usuários (Média acima de 4.0).");
-        analysis.strengths.push("O serviço está sendo bem avaliado.");
-        analysis.action_plan.push("Manter o padrão de qualidade atual.");
-    } else {
-        analysis.improvements.push("A satisfação geral está baixa (Média abaixo de 4.0).");
-        analysis.action_plan.push("Investigar os motivos das notas baixas.");
-    }
-
-    if (negativeComments > 0) {
-        analysis.improvements.push(`Foram detectados ${negativeComments} comentários com palavras negativas.`);
-        analysis.action_plan.push("Ler os comentários de texto livre com atenção.");
-    } else {
-        analysis.strengths.push("Poucos ou nenhum comentário negativo detectado.");
-    }
-
-    // Adiciona algo genérico se faltar dados
-    if (analysis.strengths.length === 0) analysis.strengths.push("Ainda coletando dados para definir pontos fortes.");
-    
-    console.log('✅ Insights gerados com sucesso');
-    res.json({ success: true, analysis });
-
   } catch (error) {
-    console.error('❌ Erro na IA:', error);
-    res.status(500).json({ error: 'Erro ao gerar insights' });
+    console.error('❌ Erro ao gerar insights:', error);
+    res.status(500).json({ error: 'Erro ao gerar insights', details: error.message });
   }
 });
 
