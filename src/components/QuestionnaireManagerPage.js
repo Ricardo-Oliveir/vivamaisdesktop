@@ -1,5 +1,6 @@
 // src/components/QuestionnaireManagerPage.js
 import React, { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { 
     Box, Typography, Button, Grid, Card, CardContent, CardActions, 
     Dialog, DialogTitle, DialogContent, DialogActions, TextField, 
@@ -12,7 +13,8 @@ import {
     AddCircle as AddPlusIcon,     // Ícone para adicionar pergunta
     Download as DownloadIcon,     // Ícone para Excel
     Visibility as ViewIcon,       // Ícone para ver perguntas
-    Assignment as AssignmentIcon
+    Assignment as AssignmentIcon,
+    BarChart as ChartIcon         // Ícone para ver respostas
 } from '@mui/icons-material';
 import * as XLSX from 'xlsx'; // Biblioteca Excel
 import api from '../services/api';
@@ -40,6 +42,8 @@ const styles = {
 };
 
 function QuestionnaireManagerPage() {
+    const navigate = useNavigate();
+    
     // --- ESTADOS ---
     const [questionnaires, setQuestionnaires] = useState([]);
     const [loading, setLoading] = useState(true);
@@ -257,6 +261,15 @@ function QuestionnaireManagerPage() {
                                 <CardActions sx={{ p: 2, paddingTop: 0, justifyContent: 'space-between' }}>
                                     {/* Grupo Esquerdo: Ferramentas */}
                                     <Box>
+                                        <Tooltip title="Ver Respostas (Gráficos)">
+                                            <IconButton 
+                                                onClick={() => navigate(`/questionarios/${q.id}/respostas`)}
+                                                sx={{ color: '#7B1FA2', border: '1px solid #CE93D8', mr: 1, borderRadius: '8px' }}
+                                            >
+                                                <ChartIcon />
+                                            </IconButton>
+                                        </Tooltip>
+                                        
                                         <Tooltip title="Baixar Respostas (Excel)">
                                             <IconButton 
                                                 onClick={() => handleExportExcel(q)}

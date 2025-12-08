@@ -12,6 +12,7 @@ import AdminDashboardPage from './components/AdminDashboardPage';
 import QuestionnaireManagerPage from './components/QuestionnaireManagerPage';
 import UserManagerPage from './components/UserManagerPage';
 import InsightsPage from './components/InsightsPage'; // A Nova página de IA
+import ResponsesViewPage from './components/ResponsesViewPage'; // Página de Respostas
 
 // Tema "Elderly" (Verde)
 const theme = createTheme({
@@ -65,6 +66,7 @@ function App() {
                     <Route element={<ProtectedRoute />}>
                         <Route path="/dashboard" element={<AdminDashboardPage />} />
                         <Route path="/questionarios" element={<QuestionnaireManagerPage />} />
+                        <Route path="/questionarios/:questionnaireId/respostas" element={<ResponsesViewPage />} />
                         <Route path="/usuarios" element={<UserManagerPage />} />
                         <Route path="/insights" element={<InsightsPage />} /> {/* Rota da IA */}
                     </Route>
