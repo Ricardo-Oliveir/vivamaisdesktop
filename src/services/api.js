@@ -1,7 +1,7 @@
 // src/services/api.js
 import axios from 'axios';
 
-// URL do seu Backend (Se estiver rodando local no PC)
+// URL do seu Backend (rodando na porta 3000)
 const API_BASE_URL = 'http://localhost:3000/api'; 
 
 const api = axios.create({
