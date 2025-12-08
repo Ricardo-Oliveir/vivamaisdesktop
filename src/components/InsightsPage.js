@@ -3,7 +3,7 @@ import React, { useState, useEffect } from 'react';
 import { 
     Box, Typography, Grid, Card, CardContent, Button, 
     Select, MenuItem, FormControl, InputLabel, CircularProgress, 
-    Chip, Divider, Alert 
+    Divider, Alert 
 } from '@mui/material';
 import { 
     AutoAwesome as AiIcon, 
@@ -44,12 +44,14 @@ function InsightsPage() {
         setInsights(null); // Limpa anterior
 
         try {
-            const response = await api.post('/api/generate-insights', { questionnaireId: selectedQ });
+            // CORREÇÃO AQUI: Removemos o '/api' extra pois o axios já tem a baseURL configurada
+            const response = await api.post('/generate-insights', { questionnaireId: selectedQ });
+            
             // Simula um tempinho de "pensando" para dar efeito de IA
             setTimeout(() => {
                 setInsights(response.data.analysis);
                 setLoading(false);
-            }, 1500);
+            }, 1000); // Reduzi um pouco o tempo para ser mais ágil
         } catch (error) {
             console.error(error);
             setLoading(false);
